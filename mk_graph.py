@@ -5,13 +5,12 @@
 #version : 1.0.0
 #make graph from apache access logs
 
-import os, sqlite3, datetime
-from urllib import request
+import os, sqlite3, datetime, re
 import matplotlib
 import numpy as np
 import geoip2.database
 from matplotlib import colors
-matplotlib.use('Agg')
+matplotlib.use('Agg')  #setting in linux to not use x-window
 import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
 
@@ -20,51 +19,129 @@ matplotlib.rcParams['toolbar'] = 'None'
 #matplotlib.rcParams['font.family']='sans-serif'
 
 def read_config():
-    with open("conf/config.ini","r") as f:
-        lines=f.readlines()
-    lines[0].split("=")[1]
-    lines[1].split("=")[1]
-    lines[2].split("=")[1]
-    logpath=/var/log/httpd/
-    logfile=access_YYYY_MM_DD.log
-    graphpath=./pngs/
+    #open config file
+    try:
+        with open("conf/config.ini","r") as f:
+            lines=f.readlines()
+    except:
+        print("ERROR: config.ini not found, please make sure config.ini in ./conf/")
 
-def get_date(start_time="",end_time=""):
-    #get one date of 3 month ago ,and 1 month ago
-    season_ago = datetime.datetime.now() + datetime.timedelta(days=-70)
-    last_month = datetime.datetime.now() + datetime.timedelta(days=-10)
-    strfdate_s = str(season_ago.strftime("%Y%m"))
-    strfdate_l = str(last_month.strftime("%Y%m"))
-    #get last day of the month
-    if strfdate_s[-2:] in ["01","03","05","07","08","10","12"]:
-        i = 31
-    elif strfdate_s[-2:] in ["04","06","09","11"]:
-        i = 30
-    elif strfdate_s[-2:] == "02":
-        if int(strfdate_s[-2:]) % 4 == 0:
-            i = 29
-        else:
-            i = 28
-    #get start date and end date
-    startdate=str(strfdate_s + "01")
-    enddate=str(strfdate_l + "01")
-    return startdate,enddate
+    #read congfig file to dictionary
+    paths={}
+    for i in range(0,2):
+        line=lines[i].strip("\n").split("=")
+        paths.update({line[0] : line[1]})
 
-def get_data(path,sql):
+    basepath = os.path.abspath(__file__).strip("mk_graph.py")
+
+    paths.update({"basepath" : basepath})
+
+    
+    #if setting is null, make default setting
+    if not paths["logpath"]:
+        paths["logpath"] = "/var/log/httpd/"
+        print("INFO: logpath setting is null, set logpath to /var/log/httpd/")
+    if not paths["graphpath"]:
+        paths["graphpath"] = basepath + "/pngs/" 
+        print("INFO: graphpath setting is null, set logfile to ./pngs/")
+    
+    #check path exists, make dir if not exists 
+    if not os.path.exists(paths["logpath"]):
+        print("INFO: logpath not exist ,creating logpath")
+        os.makedirs(paths["logpath"], 0o755)
+
+    if not os.path.exists(paths["graphpath"]):
+        print("INFO: graphpath not exist ,creating graphpath")
+        os.makedirs(paths["graphpath"], 0o755)
+
+    return paths
+
+def get_filenames(logpath):
+    file_list = []
+    allfile = os.listdir(logpath)
+    for file in allfile:
+        if re.match("^access.*\.log$",file):
+            file_list.append(file)
+    return file_list
+
+def spilt_logs(line):
+    log=line.strip("\n")
+    #split log with "
+    a=log.split('"')
+    #split 1st block with blank
+    b=a[0].split()
+    ip=b[0]
+    #the block like [02/Feb/2018:04:56:14 ,split it to 02/Feb/2018 and 04 56 14
+    dt=b[3][1:].split(':')
+    trans={"Jan":"01","Feb":"02","Mar":"03","Apr":"04","May":"05","Jun":"06","Jul":"07","Aug":"08","Sep":"09","Oct":"10","Nov":"11","Dec":"12"}
+    c=dt[0].split('/')
+    date=c[2]+trans[c[1]]+c[0]
+    time=dt[1]
+    #split 2nd block with blank,get destnation
+    dest=a[1].split()[1]
+    #split 3rd block with blank,get code
+    code=a[2].split()[0]
+    return ip,date,time,dest,code
+
+def analyze_logs(logpath):
+    #set key for no use log
+    key="spider|Googlebot|bingbot|AdsBot|Yahoo! Slurp|127.0.0.1|.png|.jpg|.js|.css|.mp4|.ico|404|301|x16|x03|x01"
+    #get file list
+    file_list=get_filenames(logpath)
+    #question and answer
+    print("insert these logfiles into database?")
+    print(file_list)
+    print("'y' for insert logfiles into database,'n' for select data from exist database")
+    answer1 = input("please input [y/n],enter for NO:")
+    if answer1 == "Y" or answer1 == "y":
+        #make connection to sqlite3 ,if not exist, create new db file automaticly
+        conn=sqlite3.connect('./logs.db')
+        cursor=conn.cursor()
+        #check table 'logs' exist, if not exist, create new table
+        try:
+            cursor.execute("select * from log limit 1")
+        except:
+            cursor.execute("CREATE TABLE logs(ip TEXT,date TEXT,time TEXT,dest TEXT,code int)")
+            print("INFO: table 'logs' not exist ,creating table 'logs'")
+        #open each file
+        print("INFO: inserting logs ...")
+        for files in file_list:
+            with open(logpath + files,'r') as f:
+                lines = f.readlines()
+                #compile each line
+                for line in lines:
+                    #if match key ,do nothing
+                    if re.search(key, line):
+                        pass 
+                    #if not match key ,insert into sqlite3
+                    else:
+                        try:
+                            res=spilt_logs(line)
+                        except:
+                            continue
+                        sql='insert into logs (ip, date, time, dest, code) values("'+res[0]+'","'+res[1]+'","'+res[2]+'","'+res[3]+'","'+res[4]+'")'
+                        cursor.execute(sql)
+        #commit and close connection
+        conn.commit()
+        cursor.close()
+    else:
+        print("select data from exist database")
+
+def get_data(basepath,sql):
     #get data from sqlite3
-    conn=sqlite3.connect(path + 'logs.db')
+    conn=sqlite3.connect(basepath +"/"+ 'logs.db')
     cursor=conn.cursor()
     res=cursor.execute(sql)
     resault=res.fetchall()
     return resault
 
-def get_county(all_ips):
+def get_county(basepath,all_ips):
     all_countries=[]
     for ips in all_ips:
         ip=ips[0]
         count=ips[1]
         #GeoIP2 module IP to country
-        reader = geoip2.database.Reader('/usr/local/lib/python3.6/site-packages/geoip2/GeoLite2-City.mmdb')
+        reader = geoip2.database.Reader(basepath +"/source/GeoLite2-db/GeoLite2-City.mmdb")
         response = reader.city(ip)
         
         #get country and province
@@ -105,9 +182,9 @@ def set_data(data):
     data_sorted=sorted(counted_data,key=lambda c: c[1], reverse=True)
     return data_sorted
 
-def get_lat_lon(path, txt):
+def get_lat_lon(basepath, txt):
     #get lonitude and latitude from txt file
-    with open(path + txt) as f:
+    with open(basepath +"/conf/" + txt) as f:
         lines=f.readlines()
     lat_lons={}
     for line in lines:
@@ -117,7 +194,7 @@ def get_lat_lon(path, txt):
         lat_lons.update(lat_lon)
     return lat_lons
 
-def mk_scatter(data,base,path,map_type):
+def mk_scatter(data,base,basepath,graphpath,map_type):
     lons = []
     lats = []
     counts = []
@@ -164,10 +241,12 @@ def mk_scatter(data,base,path,map_type):
     
     #Basemap projection
     if map_type == "china":
+        print("INFO: making china scatter graph ...")
         #Drow china map
         map = Basemap(projection='mill',llcrnrlat=18,urcrnrlat=54,llcrnrlon=73,urcrnrlon=140)
-        map.readshapefile(path + 'CHN_adm1',"state",drawbounds=True)
+        map.readshapefile(basepath + "source/shapefile/CHN_adm1","state",drawbounds=True)
     elif map_type == "world":
+        print("INFO: making world scatter graph ...")
         #Drop world map
         map = Basemap(projection='mill',llcrnrlat=-70,urcrnrlat=80,llcrnrlon=-180,urcrnrlon=180)
         map.drawcountries(color='0.50',linewidth=0.25)
@@ -213,9 +292,9 @@ def mk_scatter(data,base,path,map_type):
     plt.yticks([0.1,1],[])
 
     #save image
-    plt.savefig(path + "/pngs/"+ map_type +"_scatter.png")
+    plt.savefig(graphpath + "/"+ map_type +"_scatter.png")
 
-def mk_bar(data, path, name, totle=""):
+def mk_bar(data, graphpath, name, totle=""):
     #get xticks data list and yticks data list
     x_data = []
     y_data = []
@@ -228,6 +307,7 @@ def mk_bar(data, path, name, totle=""):
     plt.figure(figsize=(10,7))
 
     if name=="day":
+        print("INFO: making day bar graph ...")
         #make day bar graph
         color=["blue","cornflowerblue","deepskyblue","darkturquoise","cyan","turquoise","aquamarine","lightskyblue","lightblue"]
         plt.bar(x_data,y_data,color=color,alpha=0.7)
@@ -235,6 +315,7 @@ def mk_bar(data, path, name, totle=""):
         plt.xticks(rotation=90)
         plt.ylabel("accesses") 
     elif name=="hour":
+        print("INFO: making hour pie graph ...")
         #make hour pie graph
         x=[np.pi/180*x for x in np.arange(7.5,360,15)]
         w=np.pi/12
@@ -250,6 +331,7 @@ def mk_bar(data, path, name, totle=""):
         ax.set_rlabel_position(180)
         plt.bar(x,y,w,color=color,alpha=0.7)
     elif name=="URL":
+        print("INFO: making URL bar graph ...")
         #make URL bar graph
         color=['lightgrey', 'palegreen', 'greenyellow', 'lawngreen', 'yellow', 'gold', 'lightsalmon', 'darksalmon', 'salmon', 'coral', 'tomato', 'orangered', 'red', 'brown','maroon']
         plt.barh(x_data[::-1],y_data[::-1],color=color,alpha=0.7)
@@ -262,64 +344,76 @@ def mk_bar(data, path, name, totle=""):
     #set title for graph
     plt.title("Accesses Count Every " + name.capitalize())
     
-    plt.savefig(path +  "/pngs/"+ name +"_bar.png")
+    plt.savefig(graphpath +  "/"+ name +"_bar.png")
 
 def main():
-    path="/app/monthly/aeonchina/source/"
-    #get start date and end date
-    date=get_date()
-     
+    config = read_config()
+    logpath = config["logpath"]
+    graphpath = config["graphpath"]
+    basepath = config["basepath"]
+    analyze_logs(logpath)
+
+    #get start_date and end_date
+    start_date = input("please input start date \(format:YYYYMMDD\):" )
+    end_date = input("please input end date \(format:YYYYMMDD\):" )
+    while not re.match("[12]{1}[0-9]{3}[01]{1}[0-9]{1}[0-3]{1}[0-9]{1}",start_date):
+        start_date = input("please input creccot format start date \(format:YYYYMMDD\):" )
+    while not re.match("[12]{1}[0-9]{3}[01]{1}[0-9]{1}[0-3]{1}[0-9]{1}",end_date): 
+        end_date = input("please input creccot format end date \(format:YYYYMMDD\):" )
     #=================make bar graph by date====================== 
 
     #get data for sum access
-    sql1a='select count(*) from logs where date >= "'+ date[0] +'" and date <= "'+ date[1] +'"'
-    all_access=get_data(path,sql1a)
+    sql1a='select count(*) from logs where date >= "'+ start_date +'" and date <= "'+ end_date +'"'
+    all_access=get_data(basepath,sql1a)
     
     #get data for daily sum access
-    sql1b='select date, count(*) from logs where date >= "'+ date[0] +'" and date <= "'+ date[1] +'" group by date order by date'
-    day_access=get_data(path,sql1b)
+    sql1b='select date, count(*) from logs where date >= "'+ start_date +'" and date <= "'+ end_date +'" group by date order by date'
+    day_access=get_data(basepath,sql1b)
 
     #make graph
     try:
-        mk_bar(day_access,path,"day",all_access)
+        mk_bar(day_access,graphpath,"day",all_access)
     except Exception as e:
         print(e)
+        print("ERROR: making day bar graph Failed, do next graph")
         pass
      
     #=================make bar graph by hour====================== 
 
     #get data for hour sum access
-    sql2='select time, count(*) from logs where date >= "'+ date[0] +'" and date <= "'+ date[1] +'" group by time order by time'
-    hour_access=get_data(path,sql2)
+    sql2='select time, count(*) from logs where date >= "'+ start_date +'" and date <= "'+ end_date +'" group by time order by time'
+    hour_access=get_data(basepath,sql2)
 
     #make graph
     try:
-        mk_bar(hour_access,path,"hour")
+        mk_bar(hour_access,graphpath,"hour")
     except Exception as e:
         print(e)
+        print("ERROR: making hour pie graph Failed, do next graph")
         pass
    
     #=================make bar graph by access page====================== 
 
     #get data for destination sum access
-    sql3='select dest, count(*) from logs where date >= "'+ date[0] +'" and date <= "'+ date[1] +'" group by dest order by count(*) desc limit 15'
-    dest_access=get_data(path,sql3)
+    sql3='select dest, count(*) from logs where date >= "'+ start_date +'" and date <= "'+ end_date +'" group by dest order by count(*) desc limit 15'
+    dest_access=get_data(basepath,sql3)
 
     #make graph
     try:
-        mk_bar(dest_access,path,"URL")
+        mk_bar(dest_access,graphpath,"URL")
     except Exception as e:
         print(e)
+        print("ERROR: making URL bar graph Failed, do next graph")
         pass
     
     #=================make scatter graph by aera======================    
 
     #get data for ip sum access
-    sql4='select ip, count(ip) from logs where date >= "'+ date[0] +'" and date <= "'+ date[1] +'" group by ip'
-    all_ips=get_data(path,sql4)
+    sql4='select ip, count(ip) from logs where date >= "'+ start_date +'" and date <= "'+ end_date +'" group by ip'
+    all_ips=get_data(basepath,sql4)
 
     #get all country names with format [ip,name,count]
-    all_countries=get_county(all_ips)
+    all_countries=get_county(basepath,all_ips)
     
      
     try:
@@ -327,11 +421,12 @@ def main():
         data_w=set_data(all_countries)
 
         #make scatter for world view
-        txt_w="countries.txt"
-        base_w=get_lat_lon(path, txt_w)
-        mk_scatter(data_w,base_w,path, "world")
+        txt_w="countries.ini"
+        base_w=get_lat_lon(basepath, txt_w)
+        mk_scatter(data_w,base_w,basepath,graphpath, "world")
     except Exception as e:
         print(e)
+        print("ERROR: making world scatter graph Failed, do next graph")
         pass
     
     #get all province names with format [ip,name,count]
@@ -342,13 +437,15 @@ def main():
         data_c=set_data(all_provinces)
 
         #make scatter for china view
-        txt_c="provinces.txt"
-        base_c=get_lat_lon(path, txt_c)
-        mk_scatter(data_c,base_c,path, "china")
+        txt_c="provinces.ini"
+        base_c=get_lat_lon(basepath, txt_c)
+        mk_scatter(data_c,base_c,basepath,graphpath, "china")
     except Exception as e:
         print(e)
+        print("ERROR: making china scatter graph Failed")
         pass
 
+    print("INFO: Jobs Done!!! please check " +graphpath)
 
 if __name__=="__main__":
     main()
