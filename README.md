@@ -36,8 +36,8 @@ Useage
 * edit conf file
 > vim conf/config.ini
 >> logpath=apache_log_path_need_to_analyze</br>
->> graphpath=path_to_save_graph
-> if not set ,default to 
+>> graphpath=path_to_save_graph</br>
+> if not set ,default to </br>
 >> logpath=/var/log/httpd/</br>
 >> graphpath=./pngs/
 
