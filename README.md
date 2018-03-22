@@ -1,9 +1,9 @@
 apache access log to graph
 =======
 
-`Version` `1.0.0`
-`OS` `Linux`
-`Author` `justbio`
+`Version:` `1.0.0` </br>
+`OS:` `Linux` </br>
+`Author:` `justbio`
 
 purpose
 -------
@@ -33,7 +33,7 @@ Useage
 * unzip in any path of linux
 * edit conf file
 > vim conf/config.ini
->> logpath=apache_log_path_need_to_analyze
+>> logpath=apache_log_path_need_to_analyze</br>
 >> graphpath=path_to_save_graph
 * do it
 > python3 mk_graph.py
