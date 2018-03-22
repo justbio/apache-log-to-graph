@@ -26,9 +26,9 @@ Need to install
 
 Files 
 * geoip2.database
-> in `source\shapefile`
-* shapefile
 > in `source\GeoLite2-db`
+* shapefile
+> in `source\shapefile`
 
 Useage
 ------------
