@@ -8,7 +8,7 @@ apache access log to graph
 purpose
 -------
 make graph from apache access logs.
-> Only support default log format now
+> Only support default log format now </br>
 > LogFormat:`"%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined`
 
 Requirements
