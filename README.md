@@ -37,6 +37,10 @@ Useage
 > vim conf/config.ini
 >> logpath=apache_log_path_need_to_analyze</br>
 >> graphpath=path_to_save_graph
+> if not set ,default to 
+>> logpath=/var/log/httpd/</br>
+>> graphpath=./pngs/
+
 * do it
 > python3 mk_graph.py
 
